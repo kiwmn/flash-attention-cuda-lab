@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+/build/
+/dist/
+.venv/
+*.so
+*.o
+*.ncu-rep
+*.log
+/results/
+/benchmarks/results/
+.vscode/
+.idea/
+.DS_Store

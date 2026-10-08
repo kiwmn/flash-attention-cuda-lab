@@ -1,0 +1,32 @@
+BasedOnStyle: LLVM
+Language: Cpp
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 80
+UseTab: Never
+BreakBeforeBraces: Attach
+BreakTemplateDeclarations: Yes
+BreakStringLiterals: false
+FixNamespaceComments: false
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+SortIncludes: Never
+IncludeBlocks: Preserve
+IndentPPDirectives: None
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: true
+BinPackParameters: BinPack
+SpaceBeforeParens: ControlStatements
+AlwaysBreakAfterReturnType: None
+KeepEmptyLines:
+  AtEndOfFile: false
+  AtStartOfBlock: false
+  AtStartOfFile: false
+AlignAfterOpenBracket: Align
+AttributeMacros:
+  - DEVICE_INLINE
+  - HOST_DEVICE_INLINE

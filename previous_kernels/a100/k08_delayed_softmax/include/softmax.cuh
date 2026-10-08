@@ -1,0 +1,152 @@
+#pragma once
+
+// m is a normalization offset; l and O_accum use the same offset.
+// Four lanes share a row; the final normalization reduces their partial sums.
+
+#include "array.cuh"
+#include "utils.h"
+
+namespace flash_attn_lab::a100::k08 {
+
+template <bool is_first, typename S_accum_t, typename RowT,
+          typename accum_t = float>
+DEVICE_INLINE constexpr void calc_row_max(S_accum_t &S_accum, RowT &m_cur,
+                                          RowT &m_prev) {
+#pragma unroll
+    for (int q = 0; q < S_accum_t::Shape::rows(); ++q) {
+        if constexpr (is_first) {
+            m_cur[q] = S_accum(q, 0);
+        } else {
+            m_cur[q] = max(m_prev[q], S_accum(q, 0));
+        }
+
+#pragma unroll
+        for (int k = 1; k < S_accum_t::Shape::cols(); ++k) {
+            m_cur[q] = max(m_cur[q], S_accum(q, k));
+        }
+
+        m_cur[q] =
+            max(__shfl_xor_sync(SHFL_ENTIRE_WARP_MASK, m_cur[q], 2), m_cur[q]);
+        m_cur[q] =
+            max(__shfl_xor_sync(SHFL_ENTIRE_WARP_MASK, m_cur[q], 1), m_cur[q]);
+    }
+}
+
+template <typename O_accum_t, typename RowT, typename accum_t = float>
+DEVICE_INLINE constexpr void
+scale_l_O_and_update_rowmax(RowT &m_cur, RowT &m_prev, RowT &l,
+                            O_accum_t &O_accum, const accum_t &softmax_scale) {
+    // Skip scaling only when all rows in the warp retain their offsets.
+    bool unchanged = true;
+#pragma unroll
+    for (int q = 0; q < O_accum_t::Shape::rows(); ++q) {
+        unchanged = unchanged && ((m_prev[q] - m_cur[q]) == 0.0f);
+    }
+    if (__all_sync(SHFL_ENTIRE_WARP_MASK, unchanged)) {
+        return;
+    }
+
+#pragma unroll
+    for (int q = 0; q < O_accum_t::Shape::rows(); ++q) {
+        accum_t scale = exp2f((m_prev[q] - m_cur[q]) * softmax_scale);
+        m_prev[q] = m_cur[q];
+        l[q] *= scale;
+#pragma unroll
+        for (int head_dim = 0; head_dim < O_accum_t::Shape::cols();
+             ++head_dim) {
+            O_accum(q, head_dim) *= scale;
+        }
+    }
+}
+
+template <typename S_accum_t, typename accum_t = float>
+DEVICE_INLINE constexpr void
+exponentiate_tensor(S_accum_t &S_accum,
+                    ArrayAligned<S_accum_t::Shape::rows(), accum_t> &m,
+                    const accum_t &softmax_scale) {
+#pragma unroll
+    for (int q = 0; q < S_accum_t::Shape::rows(); ++q) {
+        accum_t max_scaled = m[q] * softmax_scale;
+#pragma unroll
+        for (int k = 0; k < S_accum_t::Shape::cols(); ++k) {
+            S_accum(q, k) = exp2f(S_accum(q, k) * softmax_scale - max_scaled);
+        }
+    }
+}
+
+template <bool is_first, typename P_accum_t, typename accum_t = float>
+DEVICE_INLINE constexpr void
+update_row_exp_sum(P_accum_t &P_accum,
+                   ArrayAligned<P_accum_t::Shape::rows(), accum_t> &l) {
+#pragma unroll
+    for (int q = 0; q < P_accum_t::Shape::rows(); ++q) {
+        if constexpr (is_first) {
+            l[q] = P_accum(q, 0);
+        } else {
+            l[q] += P_accum(q, 0);
+        }
+
+#pragma unroll
+        for (int head_dim = 1; head_dim < P_accum_t::Shape::cols();
+             ++head_dim) {
+            l[q] += P_accum(q, head_dim);
+        }
+    }
+}
+
+template <bool is_first, bool optimized_softmax, typename S_accum_untiled_t,
+          typename O_accum_untiled_t, typename row_statistics_t,
+          typename accum_t = float>
+DEVICE_INLINE constexpr void
+local_softmax(S_accum_untiled_t &S_accum_untiled,
+              O_accum_untiled_t &O_accum_untiled, row_statistics_t &m,
+              row_statistics_t &l, const accum_t &softmax_scale) {
+    if constexpr (is_first && optimized_softmax) {
+        calc_row_max<is_first>(S_accum_untiled, m, m);
+        exponentiate_tensor(S_accum_untiled, m, softmax_scale);
+        update_row_exp_sum<is_first>(S_accum_untiled, l);
+    } else {
+        row_statistics_t m_next;
+        calc_row_max<is_first>(S_accum_untiled, m_next, m);
+
+        // Keeping at most four log2 units of headroom bounds exp2 weights
+        // by 16.
+        if constexpr (!is_first) {
+#pragma unroll
+            for (int q = 0; q < S_accum_untiled_t::Shape::rows(); ++q) {
+                const accum_t increase_log2 =
+                    (m_next[q] - m[q]) * softmax_scale;
+                if (increase_log2 >= 0.0f && increase_log2 <= 4.0f) {
+                    m_next[q] = m[q];
+                }
+            }
+        }
+
+        scale_l_O_and_update_rowmax(m_next, m, l, O_accum_untiled,
+                                    softmax_scale);
+        exponentiate_tensor(S_accum_untiled, m, softmax_scale);
+        update_row_exp_sum<is_first>(S_accum_untiled, l);
+    }
+}
+
+template <typename O_accum_t, typename RowT, typename accum_t = float>
+DEVICE_INLINE constexpr void final_softmax_normalization(O_accum_t &O_accum,
+                                                         RowT &l) {
+#pragma unroll
+    for (int q = 0; q < O_accum_t::Shape::rows(); ++q) {
+        l[q] += __shfl_xor_sync(SHFL_ENTIRE_WARP_MASK, l[q], 2);
+        l[q] += __shfl_xor_sync(SHFL_ENTIRE_WARP_MASK, l[q], 1);
+        l[q] = 1.0f / l[q];
+    }
+
+#pragma unroll
+    for (int q = 0; q < O_accum_t::Shape::rows(); ++q) {
+#pragma unroll
+        for (int head_dim = 0; head_dim < O_accum_t::Shape::cols();
+             ++head_dim) {
+            O_accum(q, head_dim) *= l[q];
+        }
+    }
+}
+
+}

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flash-attention-cuda-lab"
+version = "0.1.0"
+description = "Step-by-step CUDA attention kernels for RTX 3090 and A100"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = ["torch>=2.4", "ninja"]
+
+[tool.setuptools]
+packages = ["flash_attn_lab", "helper"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["cuda: requires a CUDA GPU and CUDA toolkit"]
