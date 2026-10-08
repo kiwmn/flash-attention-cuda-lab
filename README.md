@@ -23,6 +23,12 @@ head dimensions 64 and 128. Only the forward pass is implemented; scale is
 shapes, and have a positive sequence length divisible by the selected `Br` and `Bc`.
 Paged attention reads an existing KV cache and supports partial tiles.
 
+For dense attention, `[B,H,N,D]` and `[B,N,H,D]` differ in global-memory layout;
+the same optimization techniques remain applicable. Adapting to `[B,N,H,D]`
+mainly requires updating Q/K/V offsets and strides for global-to-shared copies,
+output addressing, and host-side shape checks. The shared-memory layout, MMA,
+and softmax can keep the same structure. The current API accepts `[B,H,N,D]`.
+
 ## Installation
 
 Use Python 3.10+, CUDA-enabled PyTorch, the CUDA toolkit, Ninja, and a C++20
