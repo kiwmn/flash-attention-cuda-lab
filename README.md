@@ -200,10 +200,8 @@ docs/              Final performance tables and input details
 
 ## References
 
-- [FlashAttention from Scratch](https://lubits.ch/flash/) — implementation tutorial.
 - [sonnyli/flash_attention_from_scratch](https://github.com/sonnyli/flash_attention_from_scratch) — CUDA optimization roadmap and README structure.
 - [FlashAttention](https://github.com/Dao-AILab/flash-attention) — reference implementation and performance baseline.
-- [LeetCUDA](https://github.com/xlite-dev/LeetCUDA/tree/main/kernels/flash-attn) — additional CUDA attention implementations.
 
 ## License
 
