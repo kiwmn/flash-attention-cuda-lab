@@ -206,7 +206,6 @@ docs/              Final performance tables and input details
 
 ## References
 
-- [sonnyli/flash_attention_from_scratch](https://github.com/sonnyli/flash_attention_from_scratch) — CUDA optimization roadmap and README structure.
 - [FlashAttention](https://github.com/Dao-AILab/flash-attention) — reference implementation and performance baseline.
 
 ## License
